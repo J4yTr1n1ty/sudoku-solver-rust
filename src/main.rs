@@ -11,10 +11,6 @@ fn index_to_row_column(index: usize) -> (usize, usize) {
     (index / 9, index % 9)
 }
 
-fn row_column_to_index(row: usize, column: usize) -> usize {
-    row * 9 + column
-}
-
 fn collect_input() -> [i32; 81] {
     let mut new_board = [0; 81];
 
@@ -44,7 +40,20 @@ fn solve_brute_force() {
     let mut backtrack = 0;
     let time = time::Instant::now();
 
-    let solution_found = solve(board, 0, &mut backtrack);
+    let mut row_masks = [0u16; 9];
+    let mut col_masks = [0u16; 9];
+    let mut box_masks = [0u16; 9];
+
+    update_masks(&board, &mut row_masks, &mut col_masks, &mut box_masks);
+
+    let solution_found = solve_with_bitmask(
+        board,
+        0,
+        &mut backtrack,
+        &mut row_masks,
+        &mut col_masks,
+        &mut box_masks,
+    );
     let solution_time = time.elapsed();
 
     println!("Solution found: {}", solution_found);
@@ -52,6 +61,62 @@ fn solve_brute_force() {
     println!("Solution time: {}ms", solution_time.as_millis());
 
     write_solve_time_to_file(solution_time)
+}
+
+fn update_masks(
+    board: &[i32; 81],
+    row_masks: &mut [u16; 9],
+    col_masks: &mut [u16; 9],
+    box_masks: &mut [u16; 9],
+) {
+    for (index, &value) in board.iter().enumerate() {
+        if value != 0 {
+            let (row, col) = index_to_row_column(index);
+            let box_index = (row / 3) * 3 + col / 3;
+            row_masks[row] |= 1 << (value - 1);
+            col_masks[col] |= 1 << (value - 1);
+            box_masks[box_index] |= 1 << (value - 1);
+        }
+    }
+}
+
+fn solve_with_bitmask(
+    mut board: [i32; 81],
+    mut index: usize,
+    backtrack: &mut i32,
+    row_masks: &mut [u16; 9],
+    col_masks: &mut [u16; 9],
+    box_masks: &mut [u16; 9],
+) -> bool {
+    while (index < board.len()) && (board[index] != 0) {
+        index += 1;
+    }
+    if index >= board.len() {
+        return true;
+    }
+    let (row, col) = index_to_row_column(index);
+    let box_index = (row / 3) * 3 + col / 3;
+    for move_ in 1..=9 {
+        let mask = 1 << (move_ - 1);
+        if (row_masks[row] & mask) == 0
+            && (col_masks[col] & mask) == 0
+            && (box_masks[box_index] & mask) == 0
+        {
+            board[index] = move_ as i32;
+            row_masks[row] |= mask;
+            col_masks[col] |= mask;
+            box_masks[box_index] |= mask;
+            if solve_with_bitmask(board, index + 1, backtrack, row_masks, col_masks, box_masks) {
+                return true;
+            }
+            row_masks[row] &= !mask;
+            col_masks[col] &= !mask;
+            box_masks[box_index] &= !mask;
+            board[index] = 0;
+            *backtrack += 1;
+        }
+    }
+    return false;
 }
 
 // Write the solve time to a file comma separated
@@ -66,69 +131,4 @@ fn write_solve_time_to_file(solution_time: time::Duration) {
     write!(file, "{}, ", solution_time.as_millis()).unwrap();
 
     file.flush().unwrap();
-}
-
-fn get_possible_moves(board: [i32; 81], index: usize) -> Vec<i32> {
-    let mut moves = Vec::new();
-    for i in 1..=9 {
-        if acceptable(board, index, i) {
-            moves.push(i);
-        }
-    }
-    return moves;
-}
-
-fn acceptable(board: [i32; 81], index: usize, value: i32) -> bool {
-    let (row, column) = index_to_row_column(index);
-
-    // if already present on the column, not acceptable
-    for i in 0..9 {
-        let board_index = row_column_to_index(row, i);
-        if board[board_index] == value {
-            return false;
-        }
-    }
-
-    // if already present on the row, not acceptable
-    for i in 0..9 {
-        let board_index = row_column_to_index(i, column);
-        if board[board_index] == value {
-            return false;
-        }
-    }
-
-    // if already present in the 3x3 grid, not acceptable
-    let r1 = (row / 3) * 3;
-    let c1 = (column / 3) * 3;
-    for r in r1..(r1 + 3) {
-        for c in c1..(c1 + 3) {
-            let board_index = row_column_to_index(r, c);
-            if board[board_index] == value {
-                return false;
-            }
-        }
-    }
-
-    // acceptable
-    return true;
-}
-
-fn solve(mut board: [i32; 81], mut index: usize, backtrack: &mut i32) -> bool {
-    while (index < board.len()) && (board[index] != 0) {
-        index += 1;
-    }
-    if index >= board.len() {
-        return true;
-    }
-    let moves = get_possible_moves(board, index);
-    for move_ in moves {
-        board[index] = move_;
-        if solve(board, index + 1, backtrack) {
-            return true;
-        }
-    }
-    board[index] = 0;
-    *backtrack += 1;
-
-    return false;
 }
